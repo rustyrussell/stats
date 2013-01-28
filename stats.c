@@ -281,61 +281,98 @@ static void print_literal_part(const struct pattern *p, size_t off)
 	printf("%.*s", (int)p->part[off].len, p->text + p->part[off].off);
 }
 
-static const char *spacestart(const struct pattern *p, size_t off)
+static bool spacestart(const struct pattern *p, size_t off)
 {
-	if (cisspace(p->text[p->part[off].off]))
-		return " ";
-	else
-		return "";
+	return cisspace(p->text[p->part[off].off]);
 }
 
-static void print_float(union val *vals, const struct pattern *p,
-			size_t num, size_t num_parts, size_t off)
+static inline bool greater_double(union val v1, union val v2)
+{
+	return v1.dval > v2.dval;
+}
+
+static inline union val add_double(union val v1, union val v2)
+{
+	union val v;
+	v.dval = v1.dval + v2.dval;
+	return v;
+}
+
+static inline union val div_double(union val v, size_t num)
+{
+	v.dval /= num;
+	return v;
+}
+
+static inline void print_double(union val val)
+{
+	printf("%lf", val.dval);
+}
+
+static inline bool greater_int(union val v1, union val v2)
+{
+	return v1.ival > v2.ival;
+}
+
+static inline union val add_int(union val v1, union val v2)
+{
+	union val v;
+	v.ival = v1.ival + v2.ival;
+	return v;
+}
+
+static inline union val div_int(union val v, size_t num)
+{
+	v.ival /= num;
+	return v;
+}
+
+static inline void print_int(union val val)
+{
+	printf("%lli", val.ival);
+}
+
+static void print_val(const union val *vals, const struct pattern *p,
+		      size_t num, size_t num_parts, size_t off,
+		      bool trim_outliers,
+		      bool (*greater)(union val v1, union val v2),
+		      union val (*add)(union val v1, union val v2),
+		      union val (*div)(union val v, size_t num),
+		      void (*print)(union val v))
 {
 	size_t i;
-	double min = vals[off].dval, max = vals[off].dval, tot = vals[off].dval;
+	union val min, max, tot;
 
+	min = max = tot = vals[off];
+
+	/* FIXME: trim_outliers */
 	for (i = 1; i < num; i++) {
-		if (vals[off + i * num_parts].dval < min)
-			min = vals[off + i * num_parts].dval;
-		else if (vals[off + i * num_parts].dval > max)
-			max = vals[off + i * num_parts].dval;
-		tot += vals[off + i * num_parts].dval;
+		if (greater(min, vals[off + i * num_parts]))
+			min = vals[off + i * num_parts];
+		else if (greater(vals[off + i * num_parts], max))
+			max = vals[off + i * num_parts];
+		tot = add(tot, vals[off + i * num_parts]);
 	}
 
-	if (min == max)
+	if (memcmp(&min, &max, sizeof(min)) == 0)
 		print_literal_part(p, off);
-	else
-		printf("%s%lf-%lf(%lf)", spacestart(p, off),
-		       min, max, tot / num);
-}
-
-static void print_int(union val *vals, const struct pattern *p,
-		      size_t num, size_t num_parts, size_t off)
-{
-	size_t i;
-	long long min = vals[off].ival, max = vals[off].ival, tot = vals[off].ival;
-
-	for (i = 1; i < num; i++) {
-		if (vals[off + i * num_parts].ival < min)
-			min = vals[off + i * num_parts].ival;
-		else if (vals[off + i * num_parts].ival > max)
-			max = vals[off + i * num_parts].ival;
-		tot += vals[off + i * num_parts].ival;
+	else {
+		if (spacestart(p, off))
+			fputc(' ', stdout);
+		print(min);
+		fputc('-', stdout);
+		print(max);
+		fputc('(', stdout);
+		print(div(tot, num));
+		fputc(')', stdout);
 	}
-
-	if (min == max)
-		print_literal_part(p, off);
-	else
-		printf("%s%lli-%lli(%lli)", spacestart(p, off),
-		       min, max, tot / num);
 }
+
 
 static void print_analysis(const struct file *info, bool trim_outliers)
 {
 	struct line *l;
 
-	/* FIXME: trim_outliers! */
 	list_for_each(&info->lines, l, list) {
 		size_t i;
 
@@ -345,12 +382,18 @@ static void print_analysis(const struct file *info, bool trim_outliers)
 				print_literal_part(l->pattern, i);
 				break;
 			case FLOAT:
-				print_float(l->vals, l->pattern,
-					    l->count, l->pattern->num_parts, i);
+				print_val(l->vals, l->pattern,
+					  l->count, l->pattern->num_parts, i,
+					  trim_outliers,
+					  greater_double, add_double,
+					  div_double, print_double);
 				break;
 			case INTEGER:
-				print_int(l->vals, l->pattern,
-					  l->count, l->pattern->num_parts, i);
+				print_val(l->vals, l->pattern,
+					  l->count, l->pattern->num_parts, i,
+					  trim_outliers,
+					  greater_int, add_int,
+					  div_int, print_int);
 				break;
 			default:
 				abort();
