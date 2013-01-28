@@ -33,13 +33,16 @@ struct pattern {
 	struct pattern_part part[ /* num_parts */ ];
 };
 
+struct values {
+	struct list_node list;
+	union val vals[ /* num_parts */ ];
+};
+
 struct line {
 	struct list_node list;
 	struct pattern *pattern;
-	size_t count;
 
-	/* An array of count arrays of pattern->num_parts elements. */
-	union val *vals;
+	struct list_head vals;
 };
 
 static const struct pattern *line_key(const struct line *line)
@@ -99,28 +102,33 @@ static inline size_t partsize(size_t num)
 	return sizeof(struct pattern) + sizeof(struct pattern_part) * num;
 }
 
-static void add_part(struct pattern **p, union val **vals,
+static inline size_t valsize(size_t num)
+{
+	return sizeof(struct values) + sizeof(union val) * num;
+}
+
+static void add_part(struct pattern **p, struct values **vals,
 		     const struct pattern_part *part, const union val *v,
 		     size_t *max_parts)
 {
 	if ((*p)->num_parts == *max_parts) {
 		*max_parts *= 2;
 		*p = realloc(*p, partsize(*max_parts));
-		*vals = realloc(*vals, *max_parts * sizeof(*v));
+		*vals = realloc(*vals, valsize(*max_parts));
 	}
-	(*vals)[(*p)->num_parts] = *v;
+	(*vals)->vals[(*p)->num_parts] = *v;
 	(*p)->part[(*p)->num_parts++] = *part;
 }
 
 /* We want "finished in100 seconds to match "finished in  5 seconds". */
-struct pattern *get_pattern(const char *line, union val **vals)
+struct pattern *get_pattern(const char *line, struct values **vals)
 {
 	enum pattern_type state = LITERAL;
 	size_t len, i, max_parts = 3;
 	struct pattern_part part;
 	struct pattern *p;
 
-	*vals = malloc(sizeof(union val) * max_parts);
+	*vals = malloc(valsize(max_parts));
 	p = malloc(partsize(max_parts));
 	p->text = line;
 	p->num_parts = 0;
@@ -224,40 +232,36 @@ static void val_to_float(union val *val)
 	val->dval = val->ival;
 }
 
-static void add_stats(struct line *line, struct pattern *p, union val *vals)
+static void add_stats(struct line *line, struct pattern *p, struct values *vals)
 {
 	size_t i;
-
-	line->vals = realloc(line->vals, 
-			     sizeof(union val) * (line->count+1) * p->num_parts);
 
 	for (i = 0; i < p->num_parts; i++) {
 		if (p->part[i].type == LITERAL)
 			continue;
 		if (p->part[i].type == FLOAT
 		    && line->pattern->part[i].type == INTEGER) {
-			size_t j;
+			struct values *v;
+
 			/* Convert all previous entries to float. */
-			for (j = 0; j < line->count; j++)
-				val_to_float(&line->vals[j * p->num_parts + i]);
+			list_for_each(&line->vals, v, list)
+				val_to_float(&v->vals[i]);
 			line->pattern->part[i].type = FLOAT;
 		} else if (p->part[i].type == INTEGER
 			   && line->pattern->part[i].type == FLOAT) {
-			val_to_float(&vals[i]);
+			val_to_float(&vals->vals[i]);
 			p->part[i].type = FLOAT;
 		}
 		assert(p->part[i].type == line->pattern->part[i].type);
-		memcpy(line->vals + line->count * p->num_parts, vals,
-		       sizeof(*vals) * p->num_parts);
 	}
-	line->count++;
+	list_add_tail(&line->vals, &vals->list);
 }
 
 static void add_line(struct file *info, const char *str)
 {
 	struct line *line;
 	struct pattern *p;
-	union val *vals;
+	struct values *vals;
 
 	p = get_pattern(str, &vals);
 
@@ -269,8 +273,8 @@ static void add_line(struct file *info, const char *str)
 		p->text = strdup(p->text); 
 		line = malloc(sizeof(*line));
 		line->pattern = p;
-		line->count = 1;
-		line->vals = vals;
+		list_head_init(&line->vals);
+		list_add(&line->vals, &vals->list);
 		linehash_add(&info->patterns, line);
 		list_add_tail(&info->lines, &line->list);
 	}
@@ -346,8 +350,8 @@ static inline void print_int(union val val)
 	printf("%lli", val.ival);
 }
 
-static void print_val(const union val *vals, const struct pattern *p,
-		      size_t num, size_t num_parts, size_t off,
+static void print_val(const struct list_head *vals, const struct pattern *p,
+		      size_t off,
 		      bool trim_outliers,
 		      bool (*greater)(union val v1, union val v2),
 		      union val (*add)(union val v1, union val v2),
@@ -355,17 +359,22 @@ static void print_val(const union val *vals, const struct pattern *p,
 		      union val (*div)(union val v, size_t num),
 		      void (*print)(union val v))
 {
-	size_t i;
+	size_t num = 0;
 	union val min, max, tot;
+	struct values *v;
 
-	min = max = tot = vals[off];
-
-	for (i = 1; i < num; i++) {
-		if (greater(min, vals[off + i * num_parts]))
-			min = vals[off + i * num_parts];
-		else if (greater(vals[off + i * num_parts], max))
-			max = vals[off + i * num_parts];
-		tot = add(tot, vals[off + i * num_parts]);
+	v = list_top(vals, struct values, list);
+	list_for_each(vals, v, list) {
+		if (!num) {
+			min = max = tot = v->vals[off];
+		} else {
+			if (greater(min, v->vals[off]))
+				min = v->vals[off];
+			else if (greater(v->vals[off], max))
+				max = v->vals[off];
+			tot = add(tot, v->vals[off]);
+		}
+		num++;
 	}
 
 	if (memcmp(&min, &max, sizeof(min)) == 0)
@@ -387,7 +396,6 @@ static void print_val(const union val *vals, const struct pattern *p,
 	}
 }
 
-
 static void print_analysis(const struct file *info, bool trim_outliers)
 {
 	struct line *l;
@@ -401,15 +409,13 @@ static void print_analysis(const struct file *info, bool trim_outliers)
 				print_literal_part(l->pattern, i);
 				break;
 			case FLOAT:
-				print_val(l->vals, l->pattern,
-					  l->count, l->pattern->num_parts, i,
+				print_val(&l->vals, l->pattern, i,
 					  trim_outliers,
 					  greater_double, add_double, sub_double,
 					  div_double, print_double);
 				break;
 			case INTEGER:
-				print_val(l->vals, l->pattern,
-					  l->count, l->pattern->num_parts, i,
+				print_val(&l->vals, l->pattern, i,
 					  trim_outliers,
 					  greater_int, add_int, sub_int,
 					  div_int, print_int);
