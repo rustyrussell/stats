@@ -298,6 +298,13 @@ static inline union val add_double(union val v1, union val v2)
 	return v;
 }
 
+static inline union val sub_double(union val v1, union val v2)
+{
+	union val v;
+	v.dval = v1.dval - v2.dval;
+	return v;
+}
+
 static inline union val div_double(union val v, size_t num)
 {
 	v.dval /= num;
@@ -321,6 +328,13 @@ static inline union val add_int(union val v1, union val v2)
 	return v;
 }
 
+static inline union val sub_int(union val v1, union val v2)
+{
+	union val v;
+	v.ival = v1.ival - v2.ival;
+	return v;
+}
+
 static inline union val div_int(union val v, size_t num)
 {
 	v.ival /= num;
@@ -337,6 +351,7 @@ static void print_val(const union val *vals, const struct pattern *p,
 		      bool trim_outliers,
 		      bool (*greater)(union val v1, union val v2),
 		      union val (*add)(union val v1, union val v2),
+		      union val (*sub)(union val v1, union val v2),
 		      union val (*div)(union val v, size_t num),
 		      void (*print)(union val v))
 {
@@ -345,7 +360,6 @@ static void print_val(const union val *vals, const struct pattern *p,
 
 	min = max = tot = vals[off];
 
-	/* FIXME: trim_outliers */
 	for (i = 1; i < num; i++) {
 		if (greater(min, vals[off + i * num_parts]))
 			min = vals[off + i * num_parts];
@@ -363,6 +377,11 @@ static void print_val(const union val *vals, const struct pattern *p,
 		fputc('-', stdout);
 		print(max);
 		fputc('(', stdout);
+		if (num >= 3 && trim_outliers) {
+			tot = sub(tot, max);
+			tot = sub(tot, min);
+			num -= 2;
+		}
 		print(div(tot, num));
 		fputc(')', stdout);
 	}
@@ -385,14 +404,14 @@ static void print_analysis(const struct file *info, bool trim_outliers)
 				print_val(l->vals, l->pattern,
 					  l->count, l->pattern->num_parts, i,
 					  trim_outliers,
-					  greater_double, add_double,
+					  greater_double, add_double, sub_double,
 					  div_double, print_double);
 				break;
 			case INTEGER:
 				print_val(l->vals, l->pattern,
 					  l->count, l->pattern->num_parts, i,
 					  trim_outliers,
-					  greater_int, add_int,
+					  greater_int, add_int, sub_int,
 					  div_int, print_int);
 				break;
 			default:
