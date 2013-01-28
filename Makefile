@@ -7,6 +7,7 @@ all: stats
 
 check: stats
 	./stats < test.in | cmp -s test.expected
+	dd bs=5 if=test.in 2>/dev/null | ./stats | cmp -s test.expected
 
 stats: stats.o err.o opt.o opt_parse.o opt_usage.o opt_helpers.o list.o rbuf.o htable.o hash.o str.o
 

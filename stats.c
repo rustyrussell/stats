@@ -24,11 +24,11 @@ union val {
 
 struct pattern_part {
 	enum pattern_type type;
-	size_t len;
-	const char *start;
+	size_t off, len;
 };
 
 struct pattern {
+	const char *text;
 	size_t num_parts;
 	struct pattern_part part[ /* num_parts */ ];
 };
@@ -56,7 +56,7 @@ static size_t pattern_hash(const struct pattern *p)
 		const struct pattern_part *part = &p->part[i];
 
 		if (part->type == LITERAL)
-			h = hash(part->start, part->len, h);
+			h = hash(p->text + part->off, part->len, h);
 	}
 	return h;
 }
@@ -77,7 +77,9 @@ static bool line_eq(const struct line *line, const struct pattern *p)
 				return false;
 			if (part1->len != part2->len)
 				return false;
-			if (strncmp(part1->start, part2->start, part1->len))
+			if (strncmp(p->text + part1->off,
+				    p2->text + part2->off,
+				    part1->len))
 				return false;
 		} else if (part2->type == LITERAL)
 			return false;
@@ -120,6 +122,7 @@ struct pattern *get_pattern(const char *line, union val **vals)
 
 	*vals = malloc(sizeof(union val) * max_parts);
 	p = malloc(partsize(max_parts));
+	p->text = line;
 	p->num_parts = 0;
 
 	for (i = len = 0; state != TERM; i++, len++) {
@@ -179,10 +182,10 @@ struct pattern *get_pattern(const char *line, union val **vals)
 
 		part.type = old_state;
 		part.len = len;
-		part.start = line + i - len;
+		part.off = i - len;
 		if (old_state == FLOAT) {
 			char *end;
-			v.dval = strtod(part.start, &end);
+			v.dval = strtod(line + part.off, &end);
 			if (end != line + i) {
 				warnx("Could not parse float '%.*s'",
 				      (int)len, line + i - len);
@@ -192,7 +195,7 @@ struct pattern *get_pattern(const char *line, union val **vals)
 			len = 0;
 		} else if (old_state == INTEGER) {
 			char *end;
-			v.ival = strtoll(part.start, &end, 10);
+			v.ival = strtoll(line + part.off, &end, 10);
 			if (end != line + i) {
 				warnx("Could not parse integer '%.*s'",
 				      (int)len, line + i - len);
@@ -262,6 +265,8 @@ static void add_line(struct file *info, const char *str)
 	if (line) {
 		add_stats(line, p, vals);
 	} else {
+		/* We need to keep a copy of this! */
+		p->text = strdup(p->text); 
 		line = malloc(sizeof(*line));
 		line->pattern = p;
 		line->count = 1;
@@ -271,20 +276,20 @@ static void add_line(struct file *info, const char *str)
 	}
 }
 
-static void print_literal_part(const struct pattern_part *p)
+static void print_literal_part(const struct pattern *p, size_t off)
 {
-	printf("%.*s", (int)p->len, p->start);
+	printf("%.*s", (int)p->part[off].len, p->text + p->part[off].off);
 }
 
-static const char *spacestart(const struct pattern_part *p)
+static const char *spacestart(const struct pattern *p, size_t off)
 {
-	if (cisspace(*p->start))
+	if (cisspace(p->text[p->part[off].off]))
 		return " ";
 	else
 		return "";
 }
 
-static void print_float(union val *vals, const struct pattern_part *p,
+static void print_float(union val *vals, const struct pattern *p,
 			size_t num, size_t num_parts, size_t off)
 {
 	size_t i;
@@ -299,12 +304,13 @@ static void print_float(union val *vals, const struct pattern_part *p,
 	}
 
 	if (min == max)
-		print_literal_part(p);
+		print_literal_part(p, off);
 	else
-		printf("%s%lf-%lf(%lf)", spacestart(p), min, max, tot / num);
+		printf("%s%lf-%lf(%lf)", spacestart(p, off),
+		       min, max, tot / num);
 }
 
-static void print_int(union val *vals, const struct pattern_part *p,
+static void print_int(union val *vals, const struct pattern *p,
 		      size_t num, size_t num_parts, size_t off)
 {
 	size_t i;
@@ -319,9 +325,10 @@ static void print_int(union val *vals, const struct pattern_part *p,
 	}
 
 	if (min == max)
-		print_literal_part(p);
+		print_literal_part(p, off);
 	else
-		printf("%s%lli-%lli(%lli)", spacestart(p), min, max, tot / num);
+		printf("%s%lli-%lli(%lli)", spacestart(p, off),
+		       min, max, tot / num);
 }
 
 static void print_analysis(const struct file *info, bool trim_outliers)
@@ -335,14 +342,14 @@ static void print_analysis(const struct file *info, bool trim_outliers)
 		for (i = 0; i < l->pattern->num_parts; i++) {
 			switch (l->pattern->part[i].type) {
 			case LITERAL:
-				print_literal_part(&l->pattern->part[i]);
+				print_literal_part(l->pattern, i);
 				break;
 			case FLOAT:
-				print_float(l->vals, &l->pattern->part[i],
+				print_float(l->vals, l->pattern,
 					    l->count, l->pattern->num_parts, i);
 				break;
 			case INTEGER:
-				print_int(l->vals, &l->pattern->part[i],
+				print_int(l->vals, l->pattern,
 					  l->count, l->pattern->num_parts, i);
 				break;
 			default:
