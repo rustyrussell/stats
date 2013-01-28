@@ -17,14 +17,15 @@ enum pattern_type {
 	TERM
 };
 
+union val {
+	long long ival;
+	double dval;
+};
+
 struct pattern_part {
 	enum pattern_type type;
 	size_t len;
-	union {
-		const char *sval;
-		long long ival;
-		double dval;
-	} u;
+	const char *start;
 };
 
 struct pattern {
@@ -37,7 +38,8 @@ struct line {
 	struct pattern *pattern;
 	size_t count;
 
-	struct pattern_part *min, *max, *total;
+	/* An array of count arrays of pattern->num_parts elements. */
+	union val *vals;
 };
 
 static const struct pattern *line_key(const struct line *line)
@@ -54,7 +56,7 @@ static size_t pattern_hash(const struct pattern *p)
 		const struct pattern_part *part = &p->part[i];
 
 		if (part->type == LITERAL)
-			h = hash(part->u.sval, part->len, h);
+			h = hash(part->start, part->len, h);
 	}
 	return h;
 }
@@ -75,7 +77,7 @@ static bool line_eq(const struct line *line, const struct pattern *p)
 				return false;
 			if (part1->len != part2->len)
 				return false;
-			if (strncmp(part1->u.sval, part2->u.sval, part1->len))
+			if (strncmp(part1->start, part2->start, part1->len))
 				return false;
 		} else if (part2->type == LITERAL)
 			return false;
@@ -95,30 +97,35 @@ static inline size_t partsize(size_t num)
 	return sizeof(struct pattern) + sizeof(struct pattern_part) * num;
 }
 
-static void add_part(struct pattern **p, const struct pattern_part *part,
+static void add_part(struct pattern **p, union val **vals,
+		     const struct pattern_part *part, const union val *v,
 		     size_t *max_parts)
 {
 	if ((*p)->num_parts == *max_parts) {
 		*max_parts *= 2;
 		*p = realloc(*p, partsize(*max_parts));
+		*vals = realloc(*vals, *max_parts * sizeof(*v));
 	}
+	(*vals)[(*p)->num_parts] = *v;
 	(*p)->part[(*p)->num_parts++] = *part;
 }
 
 /* We want "finished in100 seconds to match "finished in  5 seconds". */
-struct pattern *get_pattern(const char *line)
+struct pattern *get_pattern(const char *line, union val **vals)
 {
 	enum pattern_type state = LITERAL;
 	size_t len, i, max_parts = 3;
 	struct pattern_part part;
 	struct pattern *p;
 
+	*vals = malloc(sizeof(union val) * max_parts);
 	p = malloc(partsize(max_parts));
 	p->num_parts = 0;
 
 	for (i = len = 0; state != TERM; i++, len++) {
 		enum pattern_type old_state = state;
 		bool starts_num;
+		union val v;
 
 		starts_num = (line[i] == '-' && cisdigit(line[i+1]))
 			|| cisdigit(line[i]);
@@ -172,24 +179,25 @@ struct pattern *get_pattern(const char *line)
 
 		part.type = old_state;
 		part.len = len;
+		part.start = line + i - len;
 		if (old_state == FLOAT) {
 			char *end;
-			part.u.dval = strtod(line + i - len, &end);
+			v.dval = strtod(part.start, &end);
 			if (end != line + i) {
 				warnx("Could not parse float '%.*s'",
 				      (int)len, line + i - len);
 			} else {
-				add_part(&p, &part, &max_parts);
+				add_part(&p, vals, &part, &v, &max_parts);
 			}
 			len = 0;
 		} else if (old_state == INTEGER) {
 			char *end;
-			part.u.ival = strtoll(line + i - len, &end, 10);
+			v.ival = strtoll(part.start, &end, 10);
 			if (end != line + i) {
 				warnx("Could not parse integer '%.*s'",
 				      (int)len, line + i - len);
 			} else {
-				add_part(&p, &part, &max_parts);
+				add_part(&p, vals, &part, &v, &max_parts);
 			}
 			len = 0;
 		} else if (old_state == LITERAL && len > 0) {
@@ -201,84 +209,119 @@ struct pattern *get_pattern(const char *line)
 				len = 0;
 				continue;
 			}
-			part.u.sval = line + i - len;
-			add_part(&p, &part, &max_parts);
+			add_part(&p, vals, &part, &v, &max_parts);
 			len = 0;
 		}
 	}
 	return p;
 }
 
-static void convert_to_float(struct pattern_part *part)
+static void val_to_float(union val *val)
 {
-	part->type = FLOAT;
-	part->u.dval = part->u.ival;
+	val->dval = val->ival;
 }
 
-static void add_stats(struct line *line, struct pattern *p)
+static void add_stats(struct line *line, struct pattern *p, union val *vals)
 {
 	size_t i;
 
-	line->count++;
-	for (i = 0; i < line->pattern->num_parts; i++) {
+	line->vals = realloc(line->vals, 
+			     sizeof(union val) * (line->count+1) * p->num_parts);
+
+	for (i = 0; i < p->num_parts; i++) {
 		if (p->part[i].type == LITERAL)
 			continue;
 		if (p->part[i].type == FLOAT
-		    && line->min[i].type == INTEGER) {
-			convert_to_float(&line->min[i]);
-			convert_to_float(&line->max[i]);
-			convert_to_float(&line->total[i]);
+		    && line->pattern->part[i].type == INTEGER) {
+			size_t j;
+			/* Convert all previous entries to float. */
+			for (j = 0; j < line->count; j++)
+				val_to_float(&line->vals[j * p->num_parts + i]);
+			line->pattern->part[i].type = FLOAT;
 		} else if (p->part[i].type == INTEGER
-		    && line->min[i].type == FLOAT) {
-			convert_to_float(&p->part[i]);
+			   && line->pattern->part[i].type == FLOAT) {
+			val_to_float(&vals[i]);
+			p->part[i].type = FLOAT;
 		}
-		assert(p->part[i].type == line->min[i].type);
-		assert(p->part[i].type == line->max[i].type);
-		assert(p->part[i].type == line->total[i].type);
-		if (p->part[i].type == INTEGER) {
-			long long ival = p->part[i].u.ival;
-			if (ival < line->min[i].u.ival)
-				line->min[i].u.ival = ival;
-			if (ival > line->max[i].u.ival)
-				line->max[i].u.ival = ival;
-			line->total[i].u.ival += ival;
-		} else {
-			double dval = p->part[i].u.dval;
-			assert(p->part[i].type == FLOAT);
-			if (dval < line->min[i].u.dval)
-				line->min[i].u.dval = dval;
-			if (dval > line->max[i].u.dval)
-				line->max[i].u.dval = dval;
-			line->total[i].u.dval += dval;
-		}
+		assert(p->part[i].type == line->pattern->part[i].type);
+		memcpy(line->vals + line->count * p->num_parts, vals,
+		       sizeof(*vals) * p->num_parts);
 	}
+	line->count++;
 }
 
 static void add_line(struct file *info, const char *str)
 {
 	struct line *line;
 	struct pattern *p;
+	union val *vals;
 
-	p = get_pattern(str);
+	p = get_pattern(str, &vals);
 
 	line = linehash_get(&info->patterns, p);
 	if (line) {
-		add_stats(line, p);
+		add_stats(line, p, vals);
 	} else {
-		size_t bytes = sizeof (*line->min) * p->num_parts;
-
-		line = malloc(sizeof(*line) + bytes * 3);
+		line = malloc(sizeof(*line));
 		line->pattern = p;
 		line->count = 1;
-		line->min = (void *)line + sizeof(*line);
-		line->max = line->min + line->pattern->num_parts;
-		line->total = line->max + line->pattern->num_parts;
-		memcpy(line->min, p->part, bytes);
-		memcpy(line->max, p->part, bytes);
-		memcpy(line->total, p->part, bytes);
+		line->vals = vals;
 		linehash_add(&info->patterns, line);
 		list_add_tail(&info->lines, &line->list);
 	}
+}
+
+static void print_literal_part(const struct pattern_part *p)
+{
+	printf("%.*s", (int)p->len, p->start);
+}
+
+static const char *spacestart(const struct pattern_part *p)
+{
+	if (cisspace(*p->start))
+		return " ";
+	else
+		return "";
+}
+
+static void print_float(union val *vals, const struct pattern_part *p,
+			size_t num, size_t num_parts, size_t off)
+{
+	size_t i;
+	double min = vals[off].dval, max = vals[off].dval, tot = vals[off].dval;
+
+	for (i = 1; i < num; i++) {
+		if (vals[off + i * num_parts].dval < min)
+			min = vals[off + i * num_parts].dval;
+		else if (vals[off + i * num_parts].dval > max)
+			max = vals[off + i * num_parts].dval;
+		tot += vals[off + i * num_parts].dval;
+	}
+
+	if (min == max)
+		print_literal_part(p);
+	else
+		printf("%s%lf-%lf(%lf)", spacestart(p), min, max, tot / num);
+}
+
+static void print_int(union val *vals, const struct pattern_part *p,
+		      size_t num, size_t num_parts, size_t off)
+{
+	size_t i;
+	long long min = vals[off].ival, max = vals[off].ival, tot = vals[off].ival;
+
+	for (i = 1; i < num; i++) {
+		if (vals[off + i * num_parts].ival < min)
+			min = vals[off + i * num_parts].ival;
+		else if (vals[off + i * num_parts].ival > max)
+			max = vals[off + i * num_parts].ival;
+		tot += vals[off + i * num_parts].ival;
+	}
+
+	if (min == max)
+		print_literal_part(p);
+	else
+		printf("%s%lli-%lli(%lli)", spacestart(p), min, max, tot / num);
 }
 
 static void print_analysis(const struct file *info, bool trim_outliers)
@@ -290,33 +333,17 @@ static void print_analysis(const struct file *info, bool trim_outliers)
 		size_t i;
 
 		for (i = 0; i < l->pattern->num_parts; i++) {
-			switch (l->min[i].type) {
+			switch (l->pattern->part[i].type) {
 			case LITERAL:
-				printf("%.*s",
-				       (int)l->pattern->part[i].len,
-				       l->pattern->part[i].u.sval);
+				print_literal_part(&l->pattern->part[i]);
 				break;
 			case FLOAT:
-				if (l->min[i].u.dval == l->max[i].u.dval)
-					/* FIXME: keep literal for this */
-					printf("%*lf", (int)l->min[i].len,
-					       l->min[i].u.dval);
-				else
-					printf(" %lf-%lf(%lf)",
-					       l->min[i].u.dval,
-					       l->max[i].u.dval,
-					       l->total[i].u.dval / l->count);
+				print_float(l->vals, &l->pattern->part[i],
+					    l->count, l->pattern->num_parts, i);
 				break;
 			case INTEGER:
-				if (l->min[i].u.ival == l->max[i].u.ival)
-					/* FIXME: keep literal for this */
-					printf("%*lli", (int)l->min[i].len,
-					       l->min[i].u.ival);
-				else
-					printf(" %lli-%lli(%lli)",
-					       l->min[i].u.ival,
-					       l->max[i].u.ival,
-					       l->total[i].u.ival / l->count);
+				print_int(l->vals, &l->pattern->part[i],
+					  l->count, l->pattern->num_parts, i);
 				break;
 			default:
 				abort();
