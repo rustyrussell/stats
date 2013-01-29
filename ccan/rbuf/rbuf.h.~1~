@@ -1,0 +1,103 @@
+/* Licensed under BSD-MIT - see LICENSE file for details */
+#ifndef CCAN_RWBUF_H
+#define CCAN_RWBUF_H
+#include <stdio.h> // For size_t
+#include <limits.h> // For UCHAR_MAX
+#include <assert.h>
+#include <stdbool.h>
+
+struct rwbuf {
+	int fd;
+
+	char *start;
+	size_t len;
+
+	char *buf, *buf_end;
+};
+
+struct rwbuf_write {
+	struct rwbuf core;
+};
+
+struct rwbuf_read {
+	struct rwbuf core;
+};
+
+/**
+ * rwbuf_init - set up a buffer.
+ * @buf: the struct rwbuf.
+ * @fd: the file descriptor.
+ * @buf: the buffer to use.
+ * @buf_max: the size of the buffer.
+ */
+static inline void rwbuf_init(struct rwbuf *buf,
+			      int fd, char *buffer, size_t buf_max)
+{
+	buf->fd = fd;
+	buf->start = buf->buf = buffer;
+	buf->len = 0;
+	buf->buf_end = buffer + buf_max;
+}
+
+/**
+ * rwbuf_good_size - get a good buffer size for this fd.
+ * @fd: the file descriptor.
+ *
+ * If you don't know what size you want, try this.
+ */
+size_t rwbuf_good_size(int fd);
+
+/**
+ * enum rwbuf_read_term - when to stop reading into a buffer.
+ * RWBUF_EOF: read the entire file.
+ * RWBUF_ANY: stop at any convenient point (ie. partial read OK).
+ */
+enum rwbuf_read_term {
+	RWBUF_EOF = UCHAR_MAX + 1,
+	RWBUF_ANY
+};
+
+/**
+ * rwbuf_read - read into a buffer.
+ * @buf: the struct rwbuf_read
+ * @term: the terminating character (or RWBUF_EOF or RWBUF_ANY).
+ * @resize: the call to resize the buffer.
+ *
+ * If @resize is needed and is NULL, or returns false, rwbuf_read
+ * will return false.
+ */
+bool rwbuf_read(struct rwbuf_read *rbuf, int term,
+		void *(*resize)(void *buf, size_t len));
+
+/**
+ * rwbuf_consume - use up data in a buffer.
+ * @buf: the struct rwbuf
+ * @len: the length (from @buf->start) you used.
+ */
+static inline void rwbuf_consume(struct rwbuf *buf, size_t len)
+{
+	buf->len -= len;
+	if (buf->len)
+		buf->start += len;
+	else
+		buf->start = 0;
+}
+
+/**
+ * rwbuf_produce - add dat to a buffer.
+ * @buf: the struct rwbuf
+ * @len: the length (from @buf->start) you added.
+ */
+static inline void rwbuf_produce(struct rwbuf *buf, size_t len)
+{
+	buf->len += len;
+	assert(buf->start + buf->len < buf->buf_end);
+}
+
+/**
+ * rwbuf_write - write from a buffer.
+ * @buf: the struct rwbuf_write.
+ */
+bool rwbuf_write(struct rwbuf_write *wbuf);
+
+#endif /* CCAN_RWBUF_H */

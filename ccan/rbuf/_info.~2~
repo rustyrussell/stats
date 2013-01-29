@@ -1,0 +1,20 @@
+#include <string.h>
+#include "config.h"
+
+/**
+ * rwbuf - buffered I/O primitives.
+ *
+ * This code is like stdio, only simpler and more transparent to the user.
+ */
+int main(int argc, char *argv[])
+{
+	/* Expect exactly one argument */
+	if (argc != 2)
+		return 1;
+
+	if (strcmp(argv[1], "depends") == 0) {
+		return 0;
+	}
+
+	return 1;
+}

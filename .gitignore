@@ -1,0 +1,4 @@
+*.o
+stats
+tools/configurator
+config.h

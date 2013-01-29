@@ -1,0 +1,21 @@
+#include <ccan/str/str.h>
+
+struct s {
+	int val;
+};
+
+int main(int argc, char *argv[])
+{
+#ifdef FAIL
+#if !HAVE_TYPEOF
+	#error We need typeof to check STR_MAX_CHARS.
+#endif
+#else
+
+#endif
+		char *ret;
+	const char *str = "hello";
+
+	ret = strstr(str, "hell");
+	return ret ? 0 : 1;
+}

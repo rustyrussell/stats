@@ -1,0 +1,107 @@
+#include <ccan/rwbuf/rwbuf.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <errno.h>
+#include <string.h>
+
+static bool empty(const struct rwbuf *buf)
+{
+	return buf->len == 0;
+}
+
+static size_t rem(const struct rwbuf *buf)
+{
+	return buf->buf_end - (buf->start + buf->len);
+}
+
+size_t rwbuf_good_size(int fd)
+{
+	struct stat st;
+
+	if (fstat(fd, &st) == 0 && st.st_blksize >= 4096)
+		return st.st_blksize;
+	return 4096;
+}
+
+static bool enlarge_buf(struct rwbuf *buf, size_t len,
+			void *(*resize)(void *buf, size_t len))
+{
+	char *new;
+	if (!resize) {
+		errno = ENOMEM;
+		return false;
+	}
+	new = resize(buf->buf, len);
+	if (!new)
+		return false;
+	buf->start += (new - buf->buf);
+	buf->buf = new;
+	buf->buf_end = new + len;
+	return true;
+}
+
+static ssize_t get_more(struct rwbuf *buf,
+			void *(*resize)(void *buf, size_t len))
+{
+	size_t r;
+
+	r = read(buf->fd, buf->start + buf->len, rem(buf));
+	if (r <= 0)
+		return r;
+
+	buf->len += r;
+	if (buf->start + buf->len == buf->buf_end) {
+		if (!enlarge_buf(buf, (buf->buf_end - buf->buf) * 2, resize))
+			return -1;
+	}
+	return r;
+}
+
+bool rwbuf_read(struct rwbuf_read *rbuf, int term,
+		void *(*resize)(void *buf, size_t len))
+{
+	struct rwbuf *buf = &rbuf->core;
+	char *p;
+	ssize_t r;
+
+	if (buf->buf_end == buf->buf) {
+		if (!enlarge_buf(buf, rwbuf_good_size(buf->fd), resize))
+			return false;
+	}
+
+	if (term == RWBUF_EOF) {
+		while ((r = get_more(buf, resize)) >= 0);
+		return r == 0;
+	}
+	if (term == RWBUF_ANY) {
+		if (buf->len)
+			return true;
+
+		return get_more(buf, resize) >= 0;
+	}
+
+	while (!(p = memchr(buf->start, term, buf->len))) {
+		r = get_more(buf, resize);
+		if (r < 0)
+			return false;
+		/* EOF with no term?  Return true. */
+		if (r == 0)
+			break;
+	}
+	return true;
+}
+
+bool rwbuf_write(struct rwbuf_write *wbuf)
+{
+	ssize_t r;
+	struct rwbuf *buf = &wbuf->core;
+
+	r = write(buf->fd, buf->start, buf->len);
+	if (r <= 0)
+		return false;
+	rwbuf_consume(buf, r);
+	return true;
+}
+		
+

@@ -1,0 +1,24 @@
+#include <string.h>
+#include "config.h"
+
+/**
+ * rwbuf - YOUR-ONE-LINE-DESCRIPTION-HERE
+ *
+ * This code ... YOUR-BRIEF-SUMMARY-HERE
+ *
+ * Example:
+ *	FULLY-COMPILABLE-INDENTED-TRIVIAL-BUT-USEFUL-EXAMPLE-HERE
+ */
+int main(int argc, char *argv[])
+{
+	/* Expect exactly one argument */
+	if (argc != 2)
+		return 1;
+
+	if (strcmp(argv[1], "depends") == 0) {
+		PRINTF-CCAN-PACKAGES-YOU-NEED-ONE-PER-LINE-IF-ANY
+		return 0;
+	}
+
+	return 1;
+}
