@@ -487,12 +487,71 @@ static void print_analysis(const struct file *info, bool trim_outliers)
 	}
 }
 
+static void print_literal_nocomma(const struct pattern *p, size_t off)
+{
+	size_t i;
+
+	for (i = p->part[off].off; i < p->part[off].off + p->part[off].len; i++)
+		if (p->text[i] != ',')
+			fputc(p->text[i], stdout);
+}
+
+static void print_csv(const struct file *info)
+{
+	struct line *l;
+	struct values *v;
+
+	list_for_each(&info->lines, l, list) {
+		size_t i;
+		bool printed;
+
+		printed = false;
+		for (i = 0; i < l->pattern->num_parts; i++) {
+			if (l->pattern->part[i].type == LITERAL) {
+				if (printed
+				    && l->pattern->part[i-1].type != LITERAL)
+					fputc(',', stdout);
+				print_literal_nocomma(l->pattern, i);
+				printed = true;
+			}
+		}
+		fputc('\n', stdout);
+
+		list_for_each(&l->vals, v, list) {
+			printed = false;
+			for (i = 0; i < l->pattern->num_parts; i++) {
+				switch (l->pattern->part[i].type) {
+				case FLOAT:
+					if (printed)
+						fputc(',', stdout);
+					print_double(v->vals[i]);
+					printed = true;
+					break;
+				case INTEGER:
+					if (printed)
+						fputc(',', stdout);
+					print_int(v->vals[i]);
+					printed = true;
+					break;
+				default:
+					break;
+				}
+			}
+			if (printed)
+				fputc('\n', stdout);
+		}
+	}
+}
+
 int main(int argc, char *argv[])
 {
 	bool trim_outliers = false;
+	bool csv = false;
 
 	opt_register_noarg("--trim-outliers", opt_set_bool, &trim_outliers,
 			   "Remove max and min results from average");
+	opt_register_noarg("--csv", opt_set_bool, &csv,
+			   "Output results as csv");
 	opt_register_noarg("-h|--help", opt_usage_and_exit,
 			   "\nA program to print max-min(avg) stats in place"
 			   "of numbers in a stream", "Print this message");
@@ -519,7 +578,10 @@ int main(int argc, char *argv[])
 			err(1, "Reading %s", argv[1] ? argv[1] : "<stdin>");
 
 		find_literal_numbers(&info);
-		print_analysis(&info, trim_outliers);
+		if (csv)
+			print_csv(&info);
+		else
+			print_analysis(&info, trim_outliers);
 	} while (argv[1] && (++argv)[1]);
 	return 0;
 }
