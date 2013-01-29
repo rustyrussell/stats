@@ -191,6 +191,8 @@ struct pattern *get_pattern(const char *line, struct values **vals)
 		part.type = old_state;
 		part.len = len;
 		part.off = i - len;
+		/* Make sure identical values memcmp in find_literal_numbers  */
+		memset(&v, 0, sizeof(v));
 		if (old_state == FLOAT) {
 			char *end;
 			v.dval = strtod(line + part.off, &end);
@@ -377,22 +379,50 @@ static void print_val(const struct list_head *vals, const struct pattern *p,
 		num++;
 	}
 
-	if (memcmp(&min, &max, sizeof(min)) == 0)
-		print_literal_part(p, off);
-	else {
-		if (spacestart(p, off))
-			fputc(' ', stdout);
-		print(min);
-		fputc('-', stdout);
-		print(max);
-		fputc('(', stdout);
-		if (num >= 3 && trim_outliers) {
-			tot = sub(tot, max);
-			tot = sub(tot, min);
-			num -= 2;
+	if (spacestart(p, off))
+		fputc(' ', stdout);
+	print(min);
+	fputc('-', stdout);
+	print(max);
+	fputc('(', stdout);
+	if (num >= 3 && trim_outliers) {
+		tot = sub(tot, max);
+		tot = sub(tot, min);
+		num -= 2;
+	}
+	print(div(tot, num));
+	fputc(')', stdout);
+}
+
+/* Numbers which are always the same are actually literals. */
+static void find_literal_numbers(struct file *info)
+{
+	struct line *l;
+	struct values *v;
+
+	list_for_each(&info->lines, l, list) {
+		size_t i;
+
+		for (i = 0; i < l->pattern->num_parts; i++) {
+			struct values *first = NULL;
+			if (l->pattern->part[i].type == LITERAL)
+				continue;
+			list_for_each(&l->vals, v, list) {
+				if (!first) {
+					first = v;
+					continue;
+				}
+				if (memcmp(&first->vals[i], &v->vals[i],
+					   sizeof(v->vals[i])) != 0) {
+					first = NULL;
+					break;
+				}
+			}
+
+			/* We overload this as a flag to say we found mismatch */
+			if (first)
+				l->pattern->part[i].type = LITERAL;
 		}
-		print(div(tot, num));
-		fputc(')', stdout);
 	}
 }
 
@@ -460,6 +490,7 @@ int main(int argc, char *argv[])
 		if (errno)
 			err(1, "Reading %s", argv[1] ? argv[1] : "<stdin>");
 
+		find_literal_numbers(&info);
 		print_analysis(&info, trim_outliers);
 	} while (argv[1] && (++argv)[1]);
 	return 0;
