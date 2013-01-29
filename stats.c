@@ -352,46 +352,74 @@ static inline void print_int(union val val)
 	printf("%lli", val.ival);
 }
 
+static void analyze_vals(const struct list_head *vals, const struct pattern *p,
+			 size_t off,
+			 bool (*greater)(union val v1, union val v2),
+			 union val (*add)(union val v1, union val v2),
+			 union val *min, union val *max, union val *tot,
+			 size_t *num)
+{
+	struct values *v;
+
+	v = list_top(vals, struct values, list);
+	*num = 0;
+	list_for_each(vals, v, list) {
+		if (!*num) {
+			*min = *max = *tot = v->vals[off];
+		} else {
+			if (greater(*min, v->vals[off]))
+				*min = v->vals[off];
+			else if (greater(v->vals[off], *max))
+				*max = v->vals[off];
+			*tot = add(*tot, v->vals[off]);
+		}
+		(*num)++;
+	}
+}
+
+static void trim_outliers(union val *min, union val *max, union val *tot,
+			  size_t *num,
+			  union val (*sub)(union val v1, union val v2))
+{
+	if (*num >= 3) {
+		*tot = sub(*tot, *max);
+		*tot = sub(*tot, *min);
+		*num -= 2;
+	}
+}
+
+static void print_one(const struct pattern *p, size_t off,
+		      union val *min, union val *max, union val *tot,
+		      size_t num,
+		      union val (*div)(union val v, size_t num),
+		      void (*print)(union val v))
+{
+	if (spacestart(p, off))
+		fputc(' ', stdout);
+	print(*min);
+	fputc('-', stdout);
+	print(*max);
+	fputc('(', stdout);
+	print(div(*tot, num));
+	fputc(')', stdout);
+}
+
 static void print_val(const struct list_head *vals, const struct pattern *p,
 		      size_t off,
-		      bool trim_outliers,
+		      bool trim_out,
 		      bool (*greater)(union val v1, union val v2),
 		      union val (*add)(union val v1, union val v2),
 		      union val (*sub)(union val v1, union val v2),
 		      union val (*div)(union val v, size_t num),
 		      void (*print)(union val v))
 {
-	size_t num = 0;
+	size_t num;
 	union val min, max, tot;
-	struct values *v;
 
-	v = list_top(vals, struct values, list);
-	list_for_each(vals, v, list) {
-		if (!num) {
-			min = max = tot = v->vals[off];
-		} else {
-			if (greater(min, v->vals[off]))
-				min = v->vals[off];
-			else if (greater(v->vals[off], max))
-				max = v->vals[off];
-			tot = add(tot, v->vals[off]);
-		}
-		num++;
-	}
-
-	if (spacestart(p, off))
-		fputc(' ', stdout);
-	print(min);
-	fputc('-', stdout);
-	print(max);
-	fputc('(', stdout);
-	if (num >= 3 && trim_outliers) {
-		tot = sub(tot, max);
-		tot = sub(tot, min);
-		num -= 2;
-	}
-	print(div(tot, num));
-	fputc(')', stdout);
+	analyze_vals(vals, p, off, greater, add, &min, &max, &tot, &num);
+	if (trim_out)
+		trim_outliers(&min, &max, &tot, &num, sub);
+	print_one(p, off, &min, &max, &tot, num, div, print);
 }
 
 /* Numbers which are always the same are actually literals. */
