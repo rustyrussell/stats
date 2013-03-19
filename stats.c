@@ -7,6 +7,7 @@
 #include <ccan/str/str.h>
 #include <unistd.h>
 #include <errno.h>
+#include <math.h>
 
 enum pattern_type {
 	LITERAL,
@@ -317,6 +318,11 @@ static inline union val div_double(union val v, size_t num)
 	return v;
 }
 
+static inline double double_to_double(union val v)
+{
+	return v.dval;
+}
+
 static inline void print_double(union val val)
 {
 	printf("%lf", val.dval);
@@ -345,6 +351,11 @@ static inline union val div_int(union val v, size_t num)
 {
 	v.ival /= num;
 	return v;
+}
+
+static inline double int_to_double(union val v)
+{
+	return (double)v.ival;
 }
 
 static inline void print_int(union val val)
@@ -377,21 +388,9 @@ static void analyze_vals(const struct list_head *vals, const struct pattern *p,
 	}
 }
 
-static void trim_outliers(union val *min, union val *max, union val *tot,
-			  size_t *num,
-			  union val (*sub)(union val v1, union val v2))
-{
-	if (*num >= 3) {
-		*tot = sub(*tot, *max);
-		*tot = sub(*tot, *min);
-		*num -= 2;
-	}
-}
-
 static void print_one(const struct pattern *p, size_t off,
-		      union val *min, union val *max, union val *tot,
-		      size_t num,
-		      union val (*div)(union val v, size_t num),
+		      union val *min, union val *max,
+		      double avg, double stddev,
 		      void (*print)(union val v))
 {
 	if (spacestart(p, off))
@@ -399,9 +398,33 @@ static void print_one(const struct pattern *p, size_t off,
 	print(*min);
 	fputc('-', stdout);
 	print(*max);
-	fputc('(', stdout);
-	print(div(*tot, num));
-	fputc(')', stdout);
+	printf("(%g+/-%.2g)", avg, stddev);
+}
+
+static double get_stddev(const struct list_head *vals, size_t off,
+			 double avg, union val min, union val max,
+			 bool trim_out,
+			 double (*to_double)(union val v))
+{
+	struct values *v;
+	double variance = 0.0;
+	unsigned num = 0;
+
+	list_for_each(vals, v, list) {
+		double d = to_double(v->vals[off]);
+		variance += (d - avg) * (d - avg);
+		num++;
+	}
+
+	if (trim_out) {
+		double d = to_double(min);
+		variance -= (d - avg) * (d - avg);
+		d = to_double(max);
+		variance -= (d - avg) * (d - avg);
+		num -= 2;
+	}
+
+	return sqrt(variance / num);
 }
 
 static void print_val(const struct list_head *vals, const struct pattern *p,
@@ -411,15 +434,25 @@ static void print_val(const struct list_head *vals, const struct pattern *p,
 		      union val (*add)(union val v1, union val v2),
 		      union val (*sub)(union val v1, union val v2),
 		      union val (*div)(union val v, size_t num),
+		      double (*to_double)(union val v),
 		      void (*print)(union val v))
 {
 	size_t num;
 	union val min, max, tot;
+	double avg, stddev;
 
 	analyze_vals(vals, p, off, greater, add, &min, &max, &tot, &num);
-	if (trim_out)
-		trim_outliers(&min, &max, &tot, &num, sub);
-	print_one(p, off, &min, &max, &tot, num, div, print);
+	if (num < 3)
+		trim_out = false;
+	if (trim_out) {
+		tot = sub(tot, max);
+		tot = sub(tot, min);
+		avg = to_double(tot) / (num - 2);
+	} else
+		avg = to_double(tot) / num;
+
+	stddev = get_stddev(vals, off, avg, min, max, trim_out, to_double);
+	print_one(p, off, &min, &max, avg, stddev, print);
 }
 
 /* Numbers which are always the same are actually literals. */
@@ -470,13 +503,14 @@ static void print_analysis(const struct file *info, bool trim_outliers)
 				print_val(&l->vals, l->pattern, i,
 					  trim_outliers,
 					  greater_double, add_double, sub_double,
-					  div_double, print_double);
+					  div_double, double_to_double,
+					  print_double);
 				break;
 			case INTEGER:
 				print_val(&l->vals, l->pattern, i,
 					  trim_outliers,
 					  greater_int, add_int, sub_int,
-					  div_int, print_int);
+					  div_int, int_to_double, print_int);
 				break;
 			default:
 				abort();

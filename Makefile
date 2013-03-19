@@ -5,6 +5,7 @@ WARNFLAGS=-Wall -Wstrict-prototypes -Wundef
 CPPFLAGS=-I.
 CFLAGS=$(OPTFLAGS) $(WARNFLAGS)
 LDFLAGS=$(OPTFLAGS)
+LDLIBS=-lm
 
 all: stats
 
