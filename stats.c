@@ -521,12 +521,12 @@ static void print_analysis(const struct file *info, bool trim_outliers)
 	}
 }
 
-static void print_literal_nocomma(const struct pattern *p, size_t off)
+static void print_literal_noquote(const struct pattern *p, size_t off)
 {
 	size_t i;
 
 	for (i = p->part[off].off; i < p->part[off].off + p->part[off].len; i++)
-		if (p->text[i] != ',')
+		if (p->text[i] != '"')
 			fputc(p->text[i], stdout);
 }
 
@@ -534,25 +534,24 @@ static void print_csv(const struct file *info)
 {
 	struct line *l;
 	struct values *v;
+	unsigned int i, num = 1;
 
+	/* First print headers */
 	list_for_each(&info->lines, l, list) {
-		size_t i;
-		bool printed;
-
-		printed = false;
+		fputc('"', stdout);
 		for (i = 0; i < l->pattern->num_parts; i++) {
-			if (l->pattern->part[i].type == LITERAL) {
-				if (printed
-				    && l->pattern->part[i-1].type != LITERAL)
-					fputc(',', stdout);
-				print_literal_nocomma(l->pattern, i);
-				printed = true;
-			}
+			if (l->pattern->part[i].type == LITERAL)
+				print_literal_noquote(l->pattern, i);
+			else
+				printf(" [%i]", num++);
 		}
-		fputc('\n', stdout);
+		fputs("\"\n", stdout);
+	}
 
+	/* Now print values */
+	list_for_each(&info->lines, l, list) {
 		list_for_each(&l->vals, v, list) {
-			printed = false;
+			bool printed = false;
 			for (i = 0; i < l->pattern->num_parts; i++) {
 				switch (l->pattern->part[i].type) {
 				case FLOAT:
