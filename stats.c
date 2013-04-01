@@ -42,6 +42,7 @@ struct values {
 struct line {
 	struct list_node list;
 	struct pattern *pattern;
+	long long count;
 
 	struct list_head vals;
 };
@@ -269,6 +270,7 @@ static void add_stats(struct line *line, struct pattern *p, struct values *vals)
 	}
 	free(p);
 	list_add_tail(&line->vals, &vals->list);
+	line->count++;
 }
 
 static void add_line(struct file *info, unsigned skip, const char *str)
@@ -287,6 +289,7 @@ static void add_line(struct file *info, unsigned skip, const char *str)
 		p->text = strdup(p->text); 
 		line = malloc(sizeof(*line));
 		line->pattern = p;
+		line->count = 1;
 		list_head_init(&line->vals);
 		list_add(&line->vals, &vals->list);
 		linehash_add(&info->patterns, line);
@@ -498,7 +501,7 @@ static void find_literal_numbers(struct file *info)
 	}
 }
 
-static void print_analysis(const struct file *info, bool trim_outliers)
+static void print_analysis(const struct file *info, bool trim_outliers, bool show_count)
 {
 	struct line *l;
 
@@ -528,6 +531,9 @@ static void print_analysis(const struct file *info, bool trim_outliers)
 			}
 
 		}
+		if (show_count) {
+			printf("  (%lli)", l->count);
+		}
 		fputc('\n', stdout);
 	}
 }
@@ -541,7 +547,7 @@ static void print_literal_noquote(const struct pattern *p, size_t off)
 			fputc(p->text[i], stdout);
 }
 
-static void print_csv(const struct file *info)
+static void print_csv(const struct file *info, bool show_count)
 {
 	struct line *l;
 	struct values *v;
@@ -556,7 +562,11 @@ static void print_csv(const struct file *info)
 			else
 				printf(" [%i]", num++);
 		}
-		fputs("\"\n", stdout);
+		fputc('"', stdout);
+		if (show_count) {
+			printf("  (%lli)", l->count);
+		}
+		fputc('\n', stdout);
 	}
 
 	/* Now print values */
@@ -608,6 +618,7 @@ int main(int argc, char *argv[])
 	bool trim_outliers = false;
 	bool csv = false;
 	unsigned skip = 0;
+	bool show_count = false;
 
 	opt_register_noarg("--trim-outliers", opt_set_bool, &trim_outliers,
 			   "Remove max and min results from average");
@@ -615,6 +626,8 @@ int main(int argc, char *argv[])
 			   "Output results as csv");
 	opt_register_arg("--skip", opt_set_uintval, opt_show_uintval, &skip,
 			   "Treat the first N numeric fields as text");
+	opt_register_noarg("-c|--count", opt_set_bool, &show_count,
+			   "Print number of occurences for each line");
 	opt_register_noarg("-h|--help", opt_usage_and_exit,
 			   "\nA program to print max-min(avg) stats in place"
 			   "of numbers in a stream", "Print this message");
@@ -643,9 +656,9 @@ int main(int argc, char *argv[])
 
 		find_literal_numbers(&info);
 		if (csv)
-			print_csv(&info);
+			print_csv(&info, show_count);
 		else
-			print_analysis(&info, trim_outliers);
+			print_analysis(&info, trim_outliers, show_count);
 		free_file_info(&info);
 	} while (argv[1] && (++argv)[1]);
 	return 0;
