@@ -60,7 +60,7 @@ static ssize_t get_more(struct rbuf *rbuf,
 			return -1;
 	}
 
-	r = read(rbuf->fd, rbuf->start + rbuf->len, rem(rbuf) > 5 ? 5 : rem(rbuf));
+	r = read(rbuf->fd, rbuf->start + rbuf->len, rem(rbuf));
 	if (r <= 0)
 		return r;
 
