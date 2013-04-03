@@ -10,14 +10,18 @@ CFLAGS=$(OPTFLAGS) $(WARNFLAGS)
 LDFLAGS=$(OPTFLAGS)
 LDLIBS=-lm
 
+# Comment this out (or use "VALGRIND=" on cmdline) if you don't have valgrind.
+VALGRIND=valgrind --quiet --leak-check=full --error-exitcode=5
+STATS_CMD=$(VALGRIND) ./stats
+
 all: stats
 
 check: stats
-	./stats < test/test.in | diff -u - test/test.expected
-	dd bs=5 if=test/test.in 2>/dev/null | ./stats | diff -u - test/test.expected
-	./stats --trim-outliers test/test.outliers.in | diff -u - test/test.outliers.expected
-	./stats --csv test/test.csv.in | diff -u - test/test.csv.expected
-	./stats --skip=1 test/test.skip.in | diff -u - test/test.skip.expected
+	$(STATS_CMD) < test/test.in | diff -u - test/test.expected
+	dd bs=5 if=test/test.in 2>/dev/null | $(STATS_CMD) | diff -u - test/test.expected
+	$(STATS_CMD) --trim-outliers test/test.outliers.in | diff -u - test/test.outliers.expected
+	$(STATS_CMD) --csv test/test.csv.in | diff -u - test/test.csv.expected
+	$(STATS_CMD) --skip=1 test/test.skip.in | diff -u - test/test.skip.expected
 
 install: stats
 	mkdir -p -m 755 ${DESTDIR}${PREFIX}/bin

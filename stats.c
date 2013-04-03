@@ -267,6 +267,7 @@ static void add_stats(struct line *line, struct pattern *p, struct values *vals)
 		}
 		assert(p->part[i].type == line->pattern->part[i].type);
 	}
+	free(p);
 	list_add_tail(&line->vals, &vals->list);
 }
 
@@ -586,6 +587,22 @@ static void print_csv(const struct file *info)
 	}
 }
 
+static void free_file_info(struct file *info)
+{
+	struct line *l;
+
+	while ((l = list_pop(&info->lines, struct line, list)) != NULL) {
+		struct values *v;
+		while ((v = list_pop(&l->vals, struct values, list)) != NULL)
+			free(v);
+		free((char *)l->pattern->text);
+		free(l->pattern);
+		free(l);
+	}
+
+	linehash_clear(&info->patterns);
+}	
+
 int main(int argc, char *argv[])
 {
 	bool trim_outliers = false;
@@ -619,6 +636,7 @@ int main(int argc, char *argv[])
 
 		while ((str = rbuf_read_str(&in, '\n', realloc)) != NULL)
 			add_line(&info, skip, str);
+		free(in.buf);
 
 		if (errno)
 			err(1, "Reading %s", argv[1] ? argv[1] : "<stdin>");
@@ -628,6 +646,7 @@ int main(int argc, char *argv[])
 			print_csv(&info);
 		else
 			print_analysis(&info, trim_outliers);
+		free_file_info(&info);
 	} while (argv[1] && (++argv)[1]);
 	return 0;
 }
