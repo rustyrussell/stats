@@ -17,6 +17,7 @@ check: stats
 	dd bs=5 if=test/test.in 2>/dev/null | ./stats | diff -u - test/test.expected
 	./stats --trim-outliers test/test.outliers.in | diff -u - test/test.outliers.expected
 	./stats --csv test/test.csv.in | diff -u - test/test.csv.expected
+	./stats --skip=1 test/test.skip.in | diff -u - test/test.skip.expected
 
 install: stats
 	mkdir -p -m 755 ${DESTDIR}${PREFIX}/bin

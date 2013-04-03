@@ -122,7 +122,9 @@ static void add_part(struct pattern **p, struct values **vals,
 }
 
 /* We want "finished in100 seconds to match "finished in  5 seconds". */
-struct pattern *get_pattern(const char *line, struct values **vals)
+struct pattern *get_pattern(const char *line,
+			    unsigned skip,
+			    struct values **vals)
 {
 	enum pattern_type state = LITERAL;
 	size_t len, i, max_parts = 3;
@@ -194,6 +196,14 @@ struct pattern *get_pattern(const char *line, struct values **vals)
 		part.off = i - len;
 		/* Make sure identical values memcmp in find_literal_numbers  */
 		memset(&v, 0, sizeof(v));
+
+		if (old_state == FLOAT || old_state == INTEGER) {
+			if (skip) {
+				old_state = LITERAL;
+				skip--;
+			}
+		}
+
 		if (old_state == FLOAT) {
 			char *end;
 			v.dval = strtod(line + part.off, &end);
@@ -260,13 +270,13 @@ static void add_stats(struct line *line, struct pattern *p, struct values *vals)
 	list_add_tail(&line->vals, &vals->list);
 }
 
-static void add_line(struct file *info, const char *str)
+static void add_line(struct file *info, unsigned skip, const char *str)
 {
 	struct line *line;
 	struct pattern *p;
 	struct values *vals;
 
-	p = get_pattern(str, &vals);
+	p = get_pattern(str, skip, &vals);
 
 	line = linehash_get(&info->patterns, p);
 	if (line) {
@@ -580,11 +590,14 @@ int main(int argc, char *argv[])
 {
 	bool trim_outliers = false;
 	bool csv = false;
+	unsigned skip = 0;
 
 	opt_register_noarg("--trim-outliers", opt_set_bool, &trim_outliers,
 			   "Remove max and min results from average");
 	opt_register_noarg("--csv", opt_set_bool, &csv,
 			   "Output results as csv");
+	opt_register_arg("--skip", opt_set_uintval, opt_show_uintval, &skip,
+			   "Treat the first N numeric fields as text");
 	opt_register_noarg("-h|--help", opt_usage_and_exit,
 			   "\nA program to print max-min(avg) stats in place"
 			   "of numbers in a stream", "Print this message");
@@ -605,7 +618,7 @@ int main(int argc, char *argv[])
 			rbuf_init(&in, STDIN_FILENO, NULL, 0);
 
 		while ((str = rbuf_read_str(&in, '\n', realloc)) != NULL)
-			add_line(&info, str);
+			add_line(&info, skip, str);
 
 		if (errno)
 			err(1, "Reading %s", argv[1] ? argv[1] : "<stdin>");
