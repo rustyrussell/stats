@@ -1,4 +1,7 @@
-PREFIX=/usr/local
+# Destination directory for installation (intended for packagers)
+DESTDIR = 
+PREFIX = /usr/local
+
 OPTFLAGS=-O3 -flto
 #OPTFLAGS=-g
 WARNFLAGS=-Wall -Wstrict-prototypes -Wundef
@@ -16,7 +19,8 @@ check: stats
 	./stats --csv test/test.csv.in | diff -u - test/test.csv.expected
 
 install: stats
-	cp $< $(PREFIX)/bin/
+	mkdir -p -m 755 ${DESTDIR}${PREFIX}/bin
+	install -m 0755 $< ${DESTDIR}${PREFIX}/bin/
 
 CFILES=stats.c ccan/err/err.c ccan/hash/hash.c ccan/htable/htable.c ccan/list/list.c ccan/opt/helpers.c ccan/opt/opt.c ccan/opt/parse.c ccan/opt/usage.c ccan/rbuf/rbuf.c ccan/str/debug.c ccan/str/str.c
 
