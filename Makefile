@@ -19,9 +19,12 @@ all: stats
 check: stats
 	$(STATS_CMD) < test/test.in | diff -u - test/test.expected
 	dd bs=5 if=test/test.in 2>/dev/null | $(STATS_CMD) | diff -u - test/test.expected
+	$(STATS_CMD) --count < test/test.in | diff -u - test/test.count.expected
 	$(STATS_CMD) --trim-outliers test/test.outliers.in | diff -u - test/test.outliers.expected
+	$(STATS_CMD) --trim-outliers --count test/test.outliers.in | diff -u - test/test.outliers+count.expected
 	$(STATS_CMD) --csv test/test.csv.in | diff -u - test/test.csv.expected
 	$(STATS_CMD) --skip=1 test/test.skip.in | diff -u - test/test.skip.expected
+	$(STATS_CMD) --csv --count test/test.csv.in | diff -u - test/test.csv+count.expected
 
 install: stats
 	mkdir -p -m 755 ${DESTDIR}${PREFIX}/bin
