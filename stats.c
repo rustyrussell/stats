@@ -502,12 +502,20 @@ static void find_literal_numbers(struct file *info)
 	}
 }
 
-static void print_analysis(const struct file *info, bool trim_outliers, bool show_count)
+static void print_analysis(const struct file *info, bool trim_outliers, bool show_count, bool suppress_inv)
 {
 	struct line *l;
 
 	list_for_each(&info->lines, l, list) {
 		size_t i;
+
+		if (suppress_inv) {
+			bool inv = true;
+			for (i = 0; inv && i < l->pattern->num_parts; i++)
+				inv = inv && (l->pattern->part[i].type == LITERAL);
+			if (inv)
+				continue; /* Don't print this line */
+		}
 
 		for (i = 0; i < l->pattern->num_parts; i++) {
 			switch (l->pattern->part[i].type) {
@@ -530,8 +538,8 @@ static void print_analysis(const struct file *info, bool trim_outliers, bool sho
 			default:
 				abort();
 			}
-
 		}
+
 		if (show_count) {
 			printf("  (%lli)", l->count);
 		}
@@ -548,30 +556,41 @@ static void print_literal_noquote(const struct pattern *p, size_t off)
 			fputc(p->text[i], stdout);
 }
 
-static void print_csv(const struct file *info, bool show_count)
+static void print_csv(const struct file *info, bool show_count, bool suppress_inv)
 {
 	struct line *l;
 	struct values *v;
-	unsigned int i, num = 1;
+	size_t i, num = 1;
+	bool first_line = true;
 
-	/* First print headers */
 	list_for_each(&info->lines, l, list) {
+		if (suppress_inv) {
+			bool inv = true;
+			for (i = 0; inv && i < l->pattern->num_parts; i++)
+				inv = inv && (l->pattern->part[i].type == LITERAL);
+			if (inv)
+				continue; /* Don't print this line */
+		}
+
+		if (!first_line)
+			fputc('\n', stdout);
+		first_line = false;
+
+		/* First print the header */
 		fputc('"', stdout);
 		for (i = 0; i < l->pattern->num_parts; i++) {
 			if (l->pattern->part[i].type == LITERAL)
 				print_literal_noquote(l->pattern, i);
 			else
-				printf(" [%i]", num++);
+				printf("%s[%zu]", (i > 0 ? " " : ""), num++);
 		}
 		fputc('"', stdout);
 		if (show_count) {
 			printf("  (%lli)", l->count);
 		}
 		fputc('\n', stdout);
-	}
 
-	/* Now print values */
-	list_for_each(&info->lines, l, list) {
+		/* Now print values */
 		list_for_each(&l->vals, v, list) {
 			bool printed = false;
 			for (i = 0; i < l->pattern->num_parts; i++) {
@@ -620,6 +639,7 @@ int main(int argc, char *argv[])
 	bool csv = false;
 	unsigned skip = 0;
 	bool show_count = false;
+	bool suppress_inv = false;
 
 	opt_register_noarg("--trim-outliers", opt_set_bool, &trim_outliers,
 			   "Remove max and min results from average");
@@ -629,11 +649,16 @@ int main(int argc, char *argv[])
 			   "Treat the first N numeric fields as text");
 	opt_register_noarg("-c|--count", opt_set_bool, &show_count,
 			   "Print number of occurences for each line");
+	opt_register_noarg("--suppress-invariant", opt_set_bool, &suppress_inv,
+			   "Discard lines without varying numbers");
 	opt_register_noarg("-h|--help", opt_usage_and_exit,
 			   "\nA program to print max-min(avg+/-dev) stats "
 			   "in place of numbers in a stream",
 			   "Print this message");
 	opt_parse(&argc, argv, opt_log_stderr_exit);
+
+	if (csv && trim_outliers)
+		warnx("--trim-outliers has no effect with --csv");
 
 	do {
 		struct file info;
@@ -658,9 +683,9 @@ int main(int argc, char *argv[])
 
 		find_literal_numbers(&info);
 		if (csv)
-			print_csv(&info, show_count);
+			print_csv(&info, show_count, suppress_inv);
 		else
-			print_analysis(&info, trim_outliers, show_count);
+			print_analysis(&info, trim_outliers, show_count, suppress_inv);
 		free_file_info(&info);
 	} while (argv[1] && (++argv)[1]);
 	return 0;
