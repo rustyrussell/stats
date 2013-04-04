@@ -665,7 +665,7 @@ int main(int argc, char *argv[])
 	opt_parse(&argc, argv, opt_log_stderr_exit);
 
 	if (csv && trim_outliers)
-		warnx("--trim-outliers has no effect with --csv");
+		errx(1, "--trim-outliers has no effect with --csv");
 
 	do {
 		struct file info;
