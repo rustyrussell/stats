@@ -495,7 +495,7 @@ static void find_literal_numbers(struct file *info)
 				}
 			}
 
-			/* We overload this as a flag to say we found mismatch */
+			/* first is cleared iff we found a mismatch.  */
 			if (first)
 				l->pattern->part[i].type = LITERAL;
 		}
