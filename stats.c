@@ -1,3 +1,4 @@
+/* Licensed under GPLv3 (or any later version) - see LICENSE file for details */
 #include <ccan/err/err.h>
 #include <ccan/opt/opt.h>
 #include <ccan/rbuf/rbuf.h>
