@@ -502,20 +502,31 @@ static void find_literal_numbers(struct file *info)
 	}
 }
 
-static void print_analysis(const struct file *info, bool trim_outliers, bool show_count, bool suppress_inv)
+static bool suppress(const struct line *l, bool suppress_inv)
+{
+	size_t i;
+
+	if (!suppress_inv)
+		return false;
+
+	for (i = 0; i < l->pattern->num_parts; i++)
+		if (l->pattern->part[i].type != LITERAL)
+			return false;
+
+	/* All literals, so this line is invariant. */
+	return true;
+}
+
+static void print_analysis(const struct file *info, bool trim_outliers,
+			   bool show_count, bool suppress_inv)
 {
 	struct line *l;
 
 	list_for_each(&info->lines, l, list) {
 		size_t i;
 
-		if (suppress_inv) {
-			bool inv = true;
-			for (i = 0; inv && i < l->pattern->num_parts; i++)
-				inv = inv && (l->pattern->part[i].type == LITERAL);
-			if (inv)
-				continue; /* Don't print this line */
-		}
+		if (suppress(l, suppress_inv))
+			continue;
 
 		for (i = 0; i < l->pattern->num_parts; i++) {
 			switch (l->pattern->part[i].type) {
@@ -556,7 +567,8 @@ static void print_literal_noquote(const struct pattern *p, size_t off)
 			fputc(p->text[i], stdout);
 }
 
-static void print_csv(const struct file *info, bool show_count, bool suppress_inv)
+static void print_csv(const struct file *info, bool show_count,
+		      bool suppress_inv)
 {
 	struct line *l;
 	struct values *v;
@@ -564,13 +576,8 @@ static void print_csv(const struct file *info, bool show_count, bool suppress_in
 	bool first_line = true;
 
 	list_for_each(&info->lines, l, list) {
-		if (suppress_inv) {
-			bool inv = true;
-			for (i = 0; inv && i < l->pattern->num_parts; i++)
-				inv = inv && (l->pattern->part[i].type == LITERAL);
-			if (inv)
-				continue; /* Don't print this line */
-		}
+		if (suppress(l, suppress_inv))
+			continue;
 
 		if (!first_line)
 			fputc('\n', stdout);
@@ -685,7 +692,8 @@ int main(int argc, char *argv[])
 		if (csv)
 			print_csv(&info, show_count, suppress_inv);
 		else
-			print_analysis(&info, trim_outliers, show_count, suppress_inv);
+			print_analysis(&info, trim_outliers, show_count,
+				       suppress_inv);
 		free_file_info(&info);
 	} while (argv[1] && (++argv)[1]);
 	return 0;
