@@ -26,6 +26,7 @@ check: stats
 	$(STATS_CMD) --csv test/test.in | diff -u - test/test.base.csv.expected
 	$(STATS_CMD) --skip=1 test/test.skip.in | diff -u - test/test.skip.expected
 	$(STATS_CMD) --csv --count test/test.csv.in | diff -u - test/test.csv+count.expected
+	$(STATS_CMD) --suppress-invariant test/test.suppress.in | diff -u - test/test.suppress.expected
 
 install: stats
 	mkdir -p -m 755 ${DESTDIR}${PREFIX}/bin
