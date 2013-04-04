@@ -54,7 +54,7 @@ static const struct pattern *line_key(const struct line *line)
 static size_t pattern_hash(const struct pattern *p)
 {
 	size_t i;
-	size_t h = p->num_parts; 
+	size_t h = p->num_parts;
 
 	for (i = 0; i < p->num_parts; i++) {
 		const struct pattern_part *part = &p->part[i];
@@ -121,7 +121,7 @@ static void add_part(struct pattern **p, struct values **vals,
 	(*p)->part[(*p)->num_parts++] = *part;
 }
 
-/* We want "finished in100 seconds to match "finished in  5 seconds". */
+/* We want "finished in100 seconds" to match "finished in  5 seconds". */
 struct pattern *get_pattern(const char *line,
 			    unsigned skip,
 			    struct values **vals)
@@ -284,7 +284,7 @@ static void add_line(struct file *info, unsigned skip, const char *str)
 		add_stats(line, p, vals);
 	} else {
 		/* We need to keep a copy of this! */
-		p->text = strdup(p->text); 
+		p->text = strdup(p->text);
 		line = malloc(sizeof(*line));
 		line->pattern = p;
 		list_head_init(&line->vals);
@@ -616,8 +616,9 @@ int main(int argc, char *argv[])
 	opt_register_arg("--skip", opt_set_uintval, opt_show_uintval, &skip,
 			   "Treat the first N numeric fields as text");
 	opt_register_noarg("-h|--help", opt_usage_and_exit,
-			   "\nA program to print max-min(avg) stats in place"
-			   "of numbers in a stream", "Print this message");
+			   "\nA program to print max-min(avg+/-dev) stats "
+			   "in place of numbers in a stream",
+			   "Print this message");
 	opt_parse(&argc, argv, opt_log_stderr_exit);
 
 	do {

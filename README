@@ -2,9 +2,9 @@ stats - simple filter to gather numbers in repeated text.
 
 Ever written a little benchmark program to print out results, and run
 it 100 times to see how much it varied?  This filter finds identical
-lines and collapses all the numbers into a range and average: it can
-also print out all the numbers in CSV form for import into
-spreadsheets, etc.
+lines and collapses all the numbers into a range, average and standard
+deviation; it can also print out all the numbers in CSV form for import
+into spreadsheets, etc.
 
 Example usage:
 
@@ -15,13 +15,13 @@ Host: notified 156251, pinged 78219
 
 $ for i in `seq 100`; do ./mybenchmark; done | stats
 Using CPUS 0 and 3
-Guest: notified 156437-156610(156548), pinged 156251
-Host: notified 156251, pinged 78219-78305(78274)
+Guest: notified 156437-156610(156548+/-40), pinged 156251
+Host: notified 156251, pinged 78219-78305(78274+/-27)
 
 Compilation notes:
 1) You can use an external config.h, but a trivial program generates it
    for you and is usually right.
-2) The ccan/ directory modules are straight from the http://ccodearchive.net
+2) The ccan/ directory modules are straight from the http://ccodearchive.net/
    project, brought in using create-ccan-tree.
 
 Good luck!
