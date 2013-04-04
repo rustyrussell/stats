@@ -553,9 +553,14 @@ static void print_csv(const struct file *info, bool show_count)
 	struct line *l;
 	struct values *v;
 	unsigned int i, num = 1;
+	bool first_line = true;
 
-	/* First print headers */
 	list_for_each(&info->lines, l, list) {
+		if (!first_line)
+			fputc('\n', stdout);
+		first_line = false;
+
+		/* First print the header */
 		fputc('"', stdout);
 		for (i = 0; i < l->pattern->num_parts; i++) {
 			if (l->pattern->part[i].type == LITERAL)
@@ -568,10 +573,8 @@ static void print_csv(const struct file *info, bool show_count)
 			printf("  (%lli)", l->count);
 		}
 		fputc('\n', stdout);
-	}
 
-	/* Now print values */
-	list_for_each(&info->lines, l, list) {
+		/* Now print values */
 		list_for_each(&l->vals, v, list) {
 			bool printed = false;
 			for (i = 0; i < l->pattern->num_parts; i++) {
