@@ -552,7 +552,7 @@ static void print_csv(const struct file *info, bool show_count)
 {
 	struct line *l;
 	struct values *v;
-	unsigned int i, num = 1;
+	size_t i, num = 1;
 	bool first_line = true;
 
 	list_for_each(&info->lines, l, list) {
@@ -566,7 +566,7 @@ static void print_csv(const struct file *info, bool show_count)
 			if (l->pattern->part[i].type == LITERAL)
 				print_literal_noquote(l->pattern, i);
 			else
-				printf("%s[%i]", (i > 0 ? " " : ""), num++);
+				printf("%s[%zu]", (i > 0 ? " " : ""), num++);
 		}
 		fputc('"', stdout);
 		if (show_count) {
