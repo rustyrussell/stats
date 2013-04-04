@@ -566,7 +566,7 @@ static void print_csv(const struct file *info, bool show_count)
 			if (l->pattern->part[i].type == LITERAL)
 				print_literal_noquote(l->pattern, i);
 			else
-				printf(" [%i]", num++);
+				printf("%s[%i]", (i > 0 ? " " : ""), num++);
 		}
 		fputc('"', stdout);
 		if (show_count) {
