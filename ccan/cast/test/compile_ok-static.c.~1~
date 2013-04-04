@@ -1,6 +1,0 @@
-static char *p = cast_const(char *, (const char *)"hello");
-
-int main(int argc, char *argv[])
-{
-	return 0;
-}
