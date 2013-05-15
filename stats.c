@@ -659,7 +659,7 @@ int main(int argc, char *argv[])
 	opt_register_noarg("--suppress-invariant", opt_set_bool, &suppress_inv,
 			   "Discard lines without varying numbers");
 	opt_register_noarg("-h|--help", opt_usage_and_exit,
-			   "\nA program to print max-min(avg+/-dev) stats "
+			   "\nA program to print min-max(avg+/-dev) stats "
 			   "in place of numbers in a stream",
 			   "Print this message");
 	opt_parse(&argc, argv, opt_log_stderr_exit);
