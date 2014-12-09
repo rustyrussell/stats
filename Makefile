@@ -32,7 +32,7 @@ install: stats
 	mkdir -p -m 755 ${DESTDIR}${PREFIX}/bin
 	install -m 0755 $< ${DESTDIR}${PREFIX}/bin/
 
-CFILES=stats.c ccan/err/err.c ccan/hash/hash.c ccan/htable/htable.c ccan/list/list.c ccan/opt/helpers.c ccan/opt/opt.c ccan/opt/parse.c ccan/opt/usage.c ccan/rbuf/rbuf.c ccan/str/debug.c ccan/str/str.c
+CFILES=stats.c ccan/err/err.c ccan/hash/hash.c ccan/htable/htable.c ccan/list/list.c ccan/opt/helpers.c ccan/opt/opt.c ccan/opt/parse.c ccan/opt/usage.c ccan/rbuf/rbuf.c ccan/str/debug.c ccan/str/str.c ccan/tally/tally.c
 
 OFILES=$(CFILES:.c=.o)
 

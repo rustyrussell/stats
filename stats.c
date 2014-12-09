@@ -6,7 +6,10 @@
 #include <ccan/hash/hash.h>
 #include <ccan/list/list.h>
 #include <ccan/str/str.h>
+#include <ccan/tally/tally.h>
 #include <unistd.h>
+#include <limits.h>
+#include <float.h>
 #include <errno.h>
 #include <math.h>
 
@@ -567,6 +570,69 @@ static void print_literal_noquote(const struct pattern *p, size_t off)
 			fputc(p->text[i], stdout);
 }
 
+static void print_graph(const struct line *line, size_t field, bool trim_outliers)
+{
+	struct tally *tally = tally_new(10000);
+	struct values *v;
+
+	if (line->pattern->part[field].type == FLOAT) {
+		double min = DBL_MAX, max = DBL_MIN, scale;
+
+		/* Tally does integers, so we need to normalize to percentages. */
+		list_for_each(&line->vals, v, list) {
+			if (v->vals[field].dval > max)
+				max = v->vals[field].dval;
+			if (v->vals[field].dval < min)
+				min = v->vals[field].dval;
+		}
+		printf(" (%f-%f, graphed as percentiles)\n", min, max);
+		scale = (max - min) / 100;
+
+		list_for_each(&line->vals, v, list)
+			tally_add(tally, (v->vals[field].dval - min) / scale);
+	} else {
+		assert(line->pattern->part[field].type == INTEGER);
+		printf("\n");
+		list_for_each(&line->vals, v, list)
+			tally_add(tally, v->vals[field].ival);
+	}
+	printf("%s", tally_histogram(tally, 78, 25));
+}
+
+static void print_histograms(const struct file *info, bool trim_outliers,
+			     bool suppress_inv)
+{
+	struct line *l;
+	size_t i;
+	bool first_line = true, printed_graph, printed_literal;
+
+	list_for_each(&info->lines, l, list) {
+		if (suppress(l, suppress_inv))
+			continue;
+
+		if (!first_line)
+			fputc('\n', stdout);
+		first_line = false;
+		printed_graph = false;
+		printed_literal = false;
+
+		for (i = 0; i < l->pattern->num_parts; i++) {
+			if (printed_graph)
+				printf("\n...");
+			if (l->pattern->part[i].type == LITERAL) {
+				print_literal_part(l->pattern, i);
+				printed_graph = false;
+				printed_literal = true;
+			} else {
+				printf("%s[GRAPH]:", (printed_literal ? " " : ""));
+				print_graph(l, i, trim_outliers);
+				printed_graph = true;
+				printed_literal = false;
+			}
+		}
+	}
+}
+
 static void print_csv(const struct file *info, bool show_count,
 		      bool suppress_inv)
 {
@@ -647,6 +713,7 @@ int main(int argc, char *argv[])
 	unsigned skip = 0;
 	bool show_count = false;
 	bool suppress_inv = false;
+	bool histograms = false;
 
 	opt_register_noarg("--trim-outliers", opt_set_bool, &trim_outliers,
 			   "Remove max and min results from average");
@@ -658,14 +725,20 @@ int main(int argc, char *argv[])
 			   "Print number of occurences for each line");
 	opt_register_noarg("--suppress-invariant", opt_set_bool, &suppress_inv,
 			   "Discard lines without varying numbers");
+	opt_register_noarg("--histogram", opt_set_bool, &histograms,
+			   "Display histogram(s) of values");
 	opt_register_noarg("-h|--help", opt_usage_and_exit,
 			   "\nA program to print min-max(avg+/-dev) stats "
 			   "in place of numbers in a stream",
 			   "Print this message");
 	opt_parse(&argc, argv, opt_log_stderr_exit);
 
-	if (csv && trim_outliers)
-		errx(1, "--trim-outliers has no effect with --csv");
+	if (csv) {
+		if (trim_outliers)
+			errx(1, "--trim-outliers has no effect with --csv");
+		if (histograms)
+			errx(1, "--histograms has no effect with --csv");
+	}
 
 	do {
 		struct file info;
@@ -691,9 +764,12 @@ int main(int argc, char *argv[])
 		find_literal_numbers(&info);
 		if (csv)
 			print_csv(&info, show_count, suppress_inv);
-		else
+		else {
 			print_analysis(&info, trim_outliers, show_count,
 				       suppress_inv);
+			if (histograms)
+				print_histograms(&info, trim_outliers, suppress_inv);
+		}
 		free_file_info(&info);
 	} while (argv[1] && (++argv)[1]);
 	return 0;
